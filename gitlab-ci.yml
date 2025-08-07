@@ -1,0 +1,80 @@
+# .gitlab-ci.yml: GitLab CI pipeline for Rate & Order Service
+stages:
+  - build
+  - test
+  - dockerize
+  - smoke_test
+  - deploy
+
+variables:
+  # Image tag using project registry and commit SHA
+  IMAGE_NAME: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+
+# Use Docker-in-Docker for building and pushing images
+image: docker:20.10.16
+services:
+  - docker:20.10.16-dind
+
+before_script:
+  # Ensure Docker daemon is ready
+  - docker info
+
+# 1) Build the Spring Boot JAR using Gradle
+build-app:
+  stage: build
+  image: gradle:8-jdk21
+  script:
+    - gradle clean bootjar --no-daemon
+  artifacts:
+    paths:
+      - build/libs/*.jar
+    expire_in: 1 hour
+
+# 2) Run unit tests
+unit-tests:
+  stage: test
+  image: gradle:8-jdk21
+  script:
+    - gradle test --no-daemon
+  dependencies:
+    - build-app
+
+# 3) build and push docker to Gitlab registry.
+docker-build:
+  stage: dockerize
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker build -t "$IMAGE_NAME" .
+    - docker push "$IMAGE_NAME"
+  needs:
+    - unit-tests
+
+#4) Smoke test: spin up Postgres + app, verify health endpoint
+docker-run-smoke:
+  stage: smoke-test
+  script:
+    # Create network
+    - docker network create ci-net || true
+    # Run Postgres
+    - docker run -d --name ci-db --network ci-net -e POSTGRES_DB=rate_order_service -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres postgres:14
+    # Run the build image
+    - docker run -d --name ci-app --network ci-net -e SPRING_DATASOURCE_URL=jdbc:postgresql://ci-db:5432/rate_order_service -e SPRING_DATASOURCE_USERNAME=martinmorales -e SPRING_DATASOURCE_PASSWORD=postgres "$IMAGE_NAME"
+    # Wait for health
+    - until curl -s http://ci-app:8080/actuator/health | grep -q '"status":"UP"'; do echo "waiting..."; sleep 2; done
+    # Verify with exit code
+    - curl -f http://ci-app:8080/actuator/health
+  needs:
+    - docker-build
+
+# 5) Deploy stage (manual trigger)
+deploy:
+  stage: deploy
+  script:
+    - echo "Deploy to production cluster."
+  when: manual
+  needs:
+    - docker-run-smoke
+
+
+
+
