@@ -56,9 +56,9 @@ docker-run-smoke:
     # Create network
     - docker network create ci-net || true
     # Run Postgres
-    - docker run -d --name ci-db --network ci-net -e POSTGRES_DB=rate_order_service -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres postgres:14
+    - docker run -d --name ci-db --network ci-net -e POSTGRES_DB=rate_order -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres postgres:14
     # Run the build image
-    - docker run -d --name ci-app --network ci-net -e SPRING_DATASOURCE_URL=jdbc:postgresql://ci-db:5432/rate_order_service -e SPRING_DATASOURCE_USERNAME=martinmorales -e SPRING_DATASOURCE_PASSWORD=postgres "$IMAGE_NAME"
+    - docker run -d --name ci-app --network ci-net -e SPRING_DATASOURCE_URL=jdbc:postgresql://ci-db:5432/rate_order -e SPRING_DATASOURCE_USERNAME=martinmorales -e SPRING_DATASOURCE_PASSWORD=postgres "$IMAGE_NAME"
     # Wait for health
     - until curl -s http://ci-app:8080/actuator/health | grep -q '"status":"UP"'; do echo "waiting..."; sleep 2; done
     # Verify with exit code
